@@ -1,0 +1,28 @@
+{
+  "name": "nagarik_fraud_training_dataset",
+  "format": "csv",
+  "label_column": "label",
+  "label_values": {
+    "0": "legitimate",
+    "1": "fraudulent_or_corrupt"
+  },
+  "columns": [
+    {"name": "duplicate_hash_count", "type": "number", "minimum": 0},
+    {"name": "officer_rejection_rate_30d", "type": "number", "minimum": 0, "maximum": 1},
+    {"name": "officer_rejection_rate_baseline", "type": "number", "minimum": 0, "maximum": 1},
+    {"name": "average_processing_delay_hours", "type": "number", "minimum": 0},
+    {"name": "same_device_application_count", "type": "number", "minimum": 0},
+    {"name": "same_bank_account_beneficiary_count", "type": "number", "minimum": 0},
+    {"name": "cross_node_mismatch_count", "type": "number", "minimum": 0},
+    {"name": "document_graph_degree", "type": "number", "minimum": 0},
+    {"name": "bribe_report_count", "type": "number", "minimum": 0},
+    {"name": "decoy_failure_rate", "type": "number", "minimum": 0, "maximum": 1},
+    {"name": "geo_velocity_km_per_hour", "type": "number", "minimum": 0},
+    {"name": "identity_reuse_count", "type": "number", "minimum": 0},
+    {"name": "ip_reputation_score", "type": "number", "minimum": 0, "maximum": 1},
+    {"name": "prior_manual_overturn_rate", "type": "number", "minimum": 0, "maximum": 1},
+    {"name": "professional_credential_age_days", "type": "number", "minimum": 0},
+    {"name": "benefit_amount_percentile", "type": "number", "minimum": 0, "maximum": 1},
+    {"name": "label", "type": "integer", "enum": [0, 1]}
+  ]
+}

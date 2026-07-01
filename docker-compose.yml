@@ -1,0 +1,84 @@
+# Nagarik Chain — Full Development Stack
+# ----------------------------------------
+# Services:
+#   api       → FastAPI backend (port 8000)
+#   ipfs      → IPFS Kubo node (port 5001/8080)
+#   postgres  → Production-grade DB (replaces SQLite for staging)
+#   redis     → Celery broker for async document AI tasks
+#   worker    → Celery worker for document AI pipeline
+#   ganache   → Local Ethereum node for smart contract dev
+#
+# Usage:
+#   docker compose up --build
+#   Open http://localhost:8000/docs
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.example
+    environment:
+      DATABASE_URL: postgresql://nagarik:nagarik@postgres:5432/nagarikdb
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      IPFS_API_URL: http://ipfs:5001
+      ETHEREUM_RPC_URL: http://ganache:8545
+    depends_on:
+      - postgres
+      - redis
+      - ipfs
+      - ganache
+    volumes:
+      - ./models:/app/models
+
+  worker:
+    build: .
+    command: celery -A nagarik_api.ai.tasks worker --loglevel=info
+    env_file:
+      - .env.example
+    environment:
+      DATABASE_URL: postgresql://nagarik:nagarik@postgres:5432/nagarikdb
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      IPFS_API_URL: http://ipfs:5001
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./models:/app/models
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nagarik
+      POSTGRES_PASSWORD: nagarik
+      POSTGRES_DB: nagarikdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  ipfs:
+    image: ipfs/kubo:latest
+    ports:
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs_data:/data/ipfs
+
+  ganache:
+    image: trufflesuite/ganache:latest
+    command: --deterministic --accounts 10 --chain.chainId 1337
+    ports:
+      - "8545:8545"
+
+volumes:
+  postgres_data:
+  ipfs_data:
