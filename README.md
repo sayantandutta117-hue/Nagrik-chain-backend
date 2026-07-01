@@ -186,3 +186,7 @@ docker push <your-registry>/nagarik-chain-backend:0.1.0
 # Deploy
 kubectl apply -f k8s/deployment.yaml
 ```
+## Contributors
+
+- Backend Developer: Sayantan
+- Project Type: Full-Stack Blockchain + AI Governance System
