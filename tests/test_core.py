@@ -49,7 +49,12 @@ def test_document_ai_runs_ocr_language_transformer_pipeline():
 def test_eligibility_engine_approves_scholarship():
     result = EligibilityEngine().decide("scholarship", {"student": True, "annual_income": 200000})
     assert result["decision"] == "auto_approve"
-
+def test_eligibility_engine_rejects_ineligible_scholarship():
+    result = EligibilityEngine().decide(
+        "scholarship",
+        {"student": True, "annual_income": 300000},
+    )
+    assert result["decision"] == "reject"
 
 class FakeFraudModel:
     def predict_proba(self, matrix):
