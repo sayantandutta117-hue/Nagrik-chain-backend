@@ -1,6 +1,11 @@
 import asyncio
 
 import httpx
+from fastapi.testclient import TestClient
+
+from nagarik_api.main import app
+
+client = TestClient(app)
 
 from nagarik_api.blockchain.ipfs import IPFSClient
 from nagarik_api.ai.document_ai import DocumentAI
@@ -154,3 +159,12 @@ def test_ipfs_client_adds_pins_verifies_and_retrieves(monkeypatch):
     cid, retrieved = asyncio.run(run())
     assert cid == "bafyrealcid"
     assert retrieved == b"stored-document"
+
+
+def test_health_endpoint_returns_expected_fields():
+    response = client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "nagarik-chain"
+    assert body["version"] == "1.0.1"
