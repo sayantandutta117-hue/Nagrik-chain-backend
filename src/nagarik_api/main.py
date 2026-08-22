@@ -78,7 +78,7 @@ def startup() -> None:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "nagarik-chain", "version": "0.1.0"}
+    return {"status": "ok", "service": "nagarik-chain", "version": "1.0.1"}
 
 
 # ── Citizen Identity ──────────────────────────────────────────────────────────
