@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -112,3 +113,66 @@ class DecoyApplication(Base):
     failure_reason: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class GovernmentApplication(Base):
+    __tablename__ = "government_applications"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("app"))
+    citizen_id: Mapped[str] = mapped_column(ForeignKey("citizens.id"), index=True)
+    scheme: Mapped[str] = mapped_column(String, index=True)
+    status: Mapped[str] = mapped_column(String, default="SUBMITTED", index=True)
+    facts: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    required_documents: Mapped[list[str]] = mapped_column(JSON, default=list)
+    eligibility_decision: Mapped[str | None] = mapped_column(String, nullable=True)
+    eligibility_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eligibility_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    fraud_risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fraud_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    risk_flagged: Mapped[bool] = mapped_column(Boolean, default=False)
+    next_action: Mapped[str] = mapped_column(String, default="AWAIT_OFFICER_REVIEW")
+    next_action_detail: Mapped[str] = mapped_column(Text, default="")
+    decision_reason: Mapped[str] = mapped_column(Text, default="")
+    decided_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    documents: Mapped[list["ApplicationDocument"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
+    history: Mapped[list["ApplicationStatusHistory"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
+
+
+class ApplicationDocument(Base):
+    __tablename__ = "application_documents"
+    __table_args__ = (UniqueConstraint("application_id", "document_id", name="uq_application_document"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("appdoc"))
+    application_id: Mapped[str] = mapped_column(ForeignKey("government_applications.id"), index=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), index=True)
+    document_type: Mapped[str] = mapped_column(String, default="")
+    attached_by: Mapped[str] = mapped_column(String, default="")
+    attached_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    application: Mapped["GovernmentApplication"] = relationship(back_populates="documents")
+    document: Mapped["Document"] = relationship()
+
+
+class ApplicationStatusHistory(Base):
+    __tablename__ = "application_status_history"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("hist"))
+    application_id: Mapped[str] = mapped_column(ForeignKey("government_applications.id"), index=True)
+    from_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    to_status: Mapped[str] = mapped_column(String)
+    actor_type: Mapped[str] = mapped_column(String, default="system")
+    actor_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    application: Mapped["GovernmentApplication"] = relationship(back_populates="history")

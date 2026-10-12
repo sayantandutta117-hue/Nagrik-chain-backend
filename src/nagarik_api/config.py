@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ir_liveness_url: str | None = None
     llm_provider: str = "offline"
     hsm_provider: str = "local"
+    fraud_risk_flag_threshold: float = 0.7
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

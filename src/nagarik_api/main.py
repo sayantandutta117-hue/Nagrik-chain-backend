@@ -18,19 +18,35 @@ Implements all REST endpoints for:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 from .ai.biometrics import BiometricVerifier
 from .ai.fraud import FraudDetector
 from .ai.zk_proofs import ZKProver, ZKVerifier
 from .config import settings
 from .db import get_db, init_db
-from .models import AuditEvent, OfficerProfile, VaultEntry, DecoyApplication
+from .models import (
+    ApplicationStatusHistory,
+    AuditEvent,
+    Citizen,
+    DecoyApplication,
+    GovernmentApplication,
+    OfficerProfile,
+    VaultEntry,
+)
 from .schemas import (
+    ApplicationCreate,
+    ApplicationOut,
+    ApplicationReviewRequest,
+    ApplicationTimelineEntry,
+    ApplicationWithdrawRequest,
     CitizenCreate,
     CitizenOut,
     DocumentOut,
@@ -40,6 +56,16 @@ from .schemas import (
     FraudScoreOut,
     ProfessionalCreate,
     ProfessionalOut,
+)
+from .services.application_service import (
+    ApplicationAccessDenied,
+    ApplicationError,
+    ApplicationNotFound,
+    ApplicationTracker,
+    ApplicationViewer,
+    InvalidApplicationInput,
+    InvalidStatusTransition,
+    to_application_out,
 )
 from .services.audit_service import AuditService
 from .services.decoy_system import DecoyApplicationSystem
@@ -60,11 +86,86 @@ app = FastAPI(
 )
 
 
+# ── Application lifecycle error mapping ───────────────────────────────────────
+
+@app.exception_handler(ApplicationNotFound)
+async def application_not_found_handler(request: Request, exc: ApplicationError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(ApplicationAccessDenied)
+async def application_access_denied_handler(request: Request, exc: ApplicationError) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+
+@app.exception_handler(InvalidStatusTransition)
+async def invalid_status_transition_handler(request: Request, exc: ApplicationError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(InvalidApplicationInput)
+async def invalid_application_input_handler(request: Request, exc: ApplicationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 def require_api_key(x_api_key: str = Header(default="")) -> None:
     if x_api_key != settings.api_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+def _find_citizen(db: Session, identifier: str) -> Citizen | None:
+    identifier = identifier.strip()
+    if not identifier:
+        return None
+    return (
+        db.query(Citizen)
+        .filter((Citizen.id == identifier) | (Citizen.chin == identifier))
+        .first()
+    )
+
+
+def require_citizen(
+    x_citizen_id: str = Header(default=""), db: Session = Depends(get_db)
+) -> Citizen:
+    if not x_citizen_id.strip():
+        raise HTTPException(status_code=401, detail="Missing x-citizen-id header")
+    citizen = _find_citizen(db, x_citizen_id)
+    if not citizen:
+        raise HTTPException(status_code=403, detail="Unknown citizen identity")
+    return citizen
+
+
+def require_officer(
+    x_officer_id: str = Header(default=""), db: Session = Depends(get_db)
+) -> OfficerProfile:
+    officer_id = x_officer_id.strip()
+    if not officer_id:
+        raise HTTPException(status_code=401, detail="Missing x-officer-id header")
+    officer = db.query(OfficerProfile).filter_by(officer_id=officer_id).first()
+    if not officer:
+        raise HTTPException(status_code=403, detail="Officer is not registered")
+    return officer
+
+
+def require_application_viewer(
+    x_citizen_id: str = Header(default=""),
+    x_officer_id: str = Header(default=""),
+    db: Session = Depends(get_db),
+) -> ApplicationViewer:
+    officer_id = x_officer_id.strip()
+    if officer_id:
+        officer = db.query(OfficerProfile).filter_by(officer_id=officer_id).first()
+        if not officer:
+            raise HTTPException(status_code=403, detail="Officer is not registered")
+        return ApplicationViewer(kind="officer", actor_id=officer.officer_id)
+    if not x_citizen_id.strip():
+        raise HTTPException(status_code=401, detail="Missing x-citizen-id or x-officer-id header")
+    citizen = _find_citizen(db, x_citizen_id)
+    if not citizen:
+        raise HTTPException(status_code=403, detail="Unknown citizen identity")
+    return ApplicationViewer(kind="citizen", actor_id=citizen.id, citizen_id=citizen.id)
 
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -144,6 +245,105 @@ async def eligibility(payload: EligibilityRequest, db: Session = Depends(get_db)
         reasons=result["reasons"],
         audit_event_id=event.id,
     )
+
+
+# ── Government Application Tracker ────────────────────────────────────────────
+
+@app.post("/applications", status_code=201, response_model=ApplicationOut, dependencies=[Depends(require_api_key)])
+async def create_application(
+    payload: ApplicationCreate, citizen: Citizen = Depends(require_citizen), db: Session = Depends(get_db)
+) -> ApplicationOut:
+    application, audit = await ApplicationTracker().create_application(db, citizen, payload)
+    return to_application_out(db, application, audit)
+
+
+@app.get("/applications/me", response_model=list[ApplicationOut], dependencies=[Depends(require_api_key)])
+async def list_my_applications(
+    citizen: Citizen = Depends(require_citizen), db: Session = Depends(get_db)
+) -> list[ApplicationOut]:
+    tracker = ApplicationTracker()
+    applications = tracker.list_citizen_applications(db, citizen.id)
+    return [to_application_out(db, application) for application in applications]
+
+
+@app.get("/applications/{application_id}", response_model=ApplicationOut, dependencies=[Depends(require_api_key)])
+async def get_application(
+    application_id: str,
+    viewer: ApplicationViewer = Depends(require_application_viewer),
+    db: Session = Depends(get_db),
+) -> ApplicationOut:
+    application = ApplicationTracker().get_application(db, application_id, viewer)
+    return to_application_out(db, application)
+
+
+@app.post("/applications/{application_id}/documents", response_model=ApplicationOut, dependencies=[Depends(require_api_key)])
+async def attach_application_document(
+    application_id: str,
+    document_id: str | None = Form(default=None),
+    document_type: str = Form(default=""),
+    text: str = Form(default=""),
+    file: UploadFile | None = File(default=None),
+    citizen: Citizen = Depends(require_citizen),
+    db: Session = Depends(get_db),
+) -> ApplicationOut:
+    tracker = ApplicationTracker()
+    if file is not None and file.filename:
+        application, audit = await tracker.submit_document(
+            db,
+            application_id,
+            citizen,
+            file.filename,
+            await file.read(),
+            text,
+            document_type,
+        )
+    elif document_id:
+        application, audit = await tracker.attach_document_by_id(
+            db, application_id, document_id, document_type, citizen
+        )
+    else:
+        raise HTTPException(
+            status_code=422, detail="Provide either an uploaded 'file' or an existing 'document_id'"
+        )
+    return to_application_out(db, application, audit)
+
+
+@app.post("/applications/{application_id}/review", response_model=ApplicationOut, dependencies=[Depends(require_api_key)])
+async def review_application(
+    application_id: str,
+    payload: ApplicationReviewRequest,
+    officer: OfficerProfile = Depends(require_officer),
+    db: Session = Depends(get_db),
+) -> ApplicationOut:
+    application, audit = await ApplicationTracker().record_review(
+        db, application_id, officer, payload.decision, payload.reason
+    )
+    return to_application_out(db, application, audit)
+
+
+@app.post("/applications/{application_id}/withdraw", response_model=ApplicationOut, dependencies=[Depends(require_api_key)])
+async def withdraw_application(
+    application_id: str,
+    payload: ApplicationWithdrawRequest | None = None,
+    citizen: Citizen = Depends(require_citizen),
+    db: Session = Depends(get_db),
+) -> ApplicationOut:
+    reason = payload.reason if payload else ""
+    application, audit = await ApplicationTracker().withdraw_application(
+        db, application_id, citizen, reason
+    )
+    return to_application_out(db, application, audit)
+
+
+@app.get("/applications/{application_id}/timeline", response_model=list[ApplicationTimelineEntry], dependencies=[Depends(require_api_key)])
+async def application_timeline(
+    application_id: str,
+    viewer: ApplicationViewer = Depends(require_application_viewer),
+    db: Session = Depends(get_db),
+) -> list[ApplicationStatusHistory]:
+    tracker = ApplicationTracker()
+    tracker.get_application(db, application_id, viewer)
+    return tracker.timeline(db, application_id)
 
 
 # ── Fraud ─────────────────────────────────────────────────────────────────────
