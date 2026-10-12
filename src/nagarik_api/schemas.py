@@ -1,4 +1,8 @@
-from pydantic import BaseModel, Field
+import math
+
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+
+SCHOLARSHIP_SCHEME = "scholarship"
 
 
 class CitizenCreate(BaseModel):
@@ -49,9 +53,35 @@ class DocumentOut(BaseModel):
 
 
 class EligibilityRequest(BaseModel):
-    citizen_id: str
-    scheme: str
+    citizen_id: str = Field(min_length=1)
+    scheme: str = Field(min_length=1)
     facts: dict
+
+    @field_validator("citizen_id", "scheme")
+    @classmethod
+    def _reject_blank_identifier(cls, value: str, info: ValidationInfo) -> str:
+        if not value.strip():
+            raise ValueError(f"{info.field_name} must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_scholarship_facts(self) -> "EligibilityRequest":
+        if self.scheme != SCHOLARSHIP_SCHEME:
+            return self
+
+        student = self.facts.get("student")
+        if not isinstance(student, bool):
+            raise ValueError("Scholarship application field 'student' must be a boolean")
+
+        annual_income = self.facts.get("annual_income")
+        if isinstance(annual_income, bool) or not isinstance(annual_income, (int, float)):
+            raise ValueError("Scholarship application field 'annual_income' must be a number")
+        if isinstance(annual_income, float) and not math.isfinite(annual_income):
+            raise ValueError("Scholarship application field 'annual_income' must be a finite number")
+        if annual_income < 0:
+            raise ValueError("Scholarship application field 'annual_income' must be 0 or greater")
+
+        return self
 
 
 class EligibilityDecision(BaseModel):
