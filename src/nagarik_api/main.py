@@ -18,7 +18,6 @@ Implements all REST endpoints for:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -36,10 +35,8 @@ from .models import (
     ApplicationStatusHistory,
     AuditEvent,
     Citizen,
-    DecoyApplication,
-    GovernmentApplication,
     OfficerProfile,
-    VaultEntry,
+    SavedSchemeError,
 )
 from .schemas import (
     ApplicationCreate,
@@ -56,6 +53,10 @@ from .schemas import (
     FraudScoreOut,
     ProfessionalCreate,
     ProfessionalOut,
+    SavedSchemeCreate,
+    SavedSchemeOut,
+    SchemeEligibilityRequest,
+    SchemeEligibilityResponse,
 )
 from .services.application_service import (
     ApplicationAccessDenied,
@@ -68,9 +69,11 @@ from .services.application_service import (
     to_application_out,
 )
 from .services.audit_service import AuditService
+from .services.bookmark_service import BookmarkService
 from .services.decoy_system import DecoyApplicationSystem
 from .services.document_service import DocumentService
-from .services.eligibility_service import EligibilityEngine
+from .services.eligibility_service import EligibilityEngine, SchemeEligibilityService
+from .services.scheme_registry import list_schemes
 from .services.identity_service import create_citizen, create_professional_credential
 from .services.integrity_service import IntegrityScoreEngine
 from .services.smart_contract_router import SmartContractEventRouter, WorkflowTrigger
@@ -106,6 +109,11 @@ async def invalid_status_transition_handler(request: Request, exc: ApplicationEr
 @app.exception_handler(InvalidApplicationInput)
 async def invalid_application_input_handler(request: Request, exc: ApplicationError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(SavedSchemeError)
+async def saved_scheme_error_handler(request: Request, exc: SavedSchemeError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -245,6 +253,41 @@ async def eligibility(payload: EligibilityRequest, db: Session = Depends(get_db)
         reasons=result["reasons"],
         audit_event_id=event.id,
     )
+
+
+# ── Government Scheme Eligibility (preliminary matching) ──────────────────────
+
+@app.post("/schemes/eligibility", response_model=SchemeEligibilityResponse, dependencies=[Depends(require_api_key)])
+async def scheme_eligibility(payload: SchemeEligibilityRequest) -> SchemeEligibilityResponse:
+    if not list_schemes():
+        raise HTTPException(
+            status_code=503,
+            detail="No scheme eligibility data is configured; provide a scheme catalog.",
+        )
+    return SchemeEligibilityService().evaluate(payload)
+
+
+# ── Saved Schemes / Bookmarks ─────────────────────────────────────────────────
+
+@app.post("/users/bookmarks", response_model=SavedSchemeOut, status_code=201, dependencies=[Depends(require_api_key)])
+async def save_bookmark(
+    payload: SavedSchemeCreate, citizen: Citizen = Depends(require_citizen), db: Session = Depends(get_db)
+) -> SavedSchemeOut:
+    return BookmarkService().save(db, citizen.id, payload)
+
+
+@app.get("/users/bookmarks", response_model=list[SavedSchemeOut], dependencies=[Depends(require_api_key)])
+async def list_bookmarks(
+    citizen: Citizen = Depends(require_citizen), db: Session = Depends(get_db)
+) -> list[SavedSchemeOut]:
+    return BookmarkService().list_bookmarks(db, citizen.id)
+
+
+@app.delete("/users/bookmarks/{scheme_id}", status_code=204, dependencies=[Depends(require_api_key)])
+async def delete_bookmark(
+    scheme_id: str, citizen: Citizen = Depends(require_citizen), db: Session = Depends(get_db)
+) -> None:
+    BookmarkService().delete(db, citizen.id, scheme_id)
 
 
 # ── Government Application Tracker ────────────────────────────────────────────

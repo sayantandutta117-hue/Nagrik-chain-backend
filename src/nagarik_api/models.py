@@ -176,3 +176,25 @@ class ApplicationStatusHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     application: Mapped["GovernmentApplication"] = relationship(back_populates="history")
+
+
+class SavedScheme(Base):
+    """A scheme bookmarked by an authenticated citizen."""
+
+    __tablename__ = "saved_schemes"
+    __table_args__ = (
+        UniqueConstraint("citizen_id", "scheme_id", name="uq_saved_scheme_citizen_scheme"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("save"))
+    citizen_id: Mapped[str] = mapped_column(ForeignKey("citizens.id"), index=True)
+    scheme_id: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SavedSchemeError(Exception):
+    """Raised by the bookmark service with an HTTP status code."""
+
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code

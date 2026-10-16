@@ -226,3 +226,66 @@ class ApplicationTimelineEntry(BaseModel):
     actor_id: str | None = None
     reason: str = ""
     created_at: datetime
+
+
+# ── Government Scheme Eligibility ──────────────────────────────────────────────
+
+class SchemeMatch(BaseModel):
+    scheme_id: str
+    name: str
+    matched_reasons: list[str] = []
+    disclaimer: str = ""
+
+
+class SchemeNonMatch(BaseModel):
+    scheme_id: str
+    name: str
+    not_matched_reasons: list[str] = []
+
+
+class SchemeEligibilityRequest(BaseModel):
+    citizen_id: str = Field(min_length=1)
+    age: int | None = Field(default=None, ge=0)
+    state: str | None = Field(default=None, min_length=1)
+    occupation: str | None = Field(default=None, min_length=1)
+    annual_income: int | None = Field(default=None, ge=0)
+    extra: dict[str, Any] | None = None
+
+    @field_validator("citizen_id", "state", "occupation")
+    @classmethod
+    def _reject_blank_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if not value.strip():
+            raise ValueError("field must not be blank")
+        return value
+
+
+class SchemeEligibilityResponse(BaseModel):
+    citizen_id: str
+    preliminary_matches: list[SchemeMatch]
+    non_matches: list[SchemeNonMatch]
+    schemes_evaluated: int
+    disclaimer: str
+
+
+# ── Saved Schemes / Bookmarks ──────────────────────────────────────────────────
+
+class SavedSchemeCreate(BaseModel):
+    scheme_id: str = Field(min_length=1)
+
+    @field_validator("scheme_id")
+    @classmethod
+    def _reject_blank_scheme_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("scheme_id must not be blank")
+        return value
+
+
+class SavedSchemeOut(BaseModel):
+    id: str
+    citizen_id: str
+    scheme_id: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

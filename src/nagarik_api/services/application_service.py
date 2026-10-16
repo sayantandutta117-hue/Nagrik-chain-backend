@@ -336,6 +336,10 @@ class ApplicationTracker:
         citizen: Citizen,
     ) -> tuple[GovernmentApplication, AuditInfo]:
         application = self._find_owned(db, application_id, citizen)
+        if application.status in TERMINAL_STATUSES:
+            raise InvalidStatusTransition(
+                f"Application {application.id} is {application.status} and no longer accepts documents"
+            )
         document = db.query(Document).filter_by(id=document_id.strip()).first()
         if not document:
             raise ApplicationNotFound(f"Document '{document_id}' was not found")
@@ -465,7 +469,7 @@ class ApplicationTracker:
             subject_id=application.id,
             payload={"reason": withdrawal_reason[:MAX_REASON_LENGTH]},
         )
-        self._transition(
+        await self._transition(
             db,
             application,
             target=STATUS_WITHDRAWN,

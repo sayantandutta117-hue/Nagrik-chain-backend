@@ -118,6 +118,10 @@ print('Contract deployed at:', addr)
 | POST | /professionals | Issue P-DID professional credential |
 | POST | /documents | Notarize document (IPFS + AI classification) |
 | POST | /eligibility | Evaluate scheme eligibility (scholarship/pension/crop) |
+| POST | /schemes/eligibility | Preliminary scheme match for a citizen's details |
+| POST | /users/bookmarks | Save (bookmark) a scheme for the authenticated citizen |
+| GET | /users/bookmarks | List the authenticated citizen's saved schemes |
+| DELETE | /users/bookmarks/{scheme_id} | Remove a saved scheme |
 | POST | /fraud/report | Anonymous encrypted bribe report |
 | POST | /fraud/score | ML-based fraud risk scoring with SHAP |
 | POST | /biometrics/enroll | Face enrollment with liveness check |
@@ -132,6 +136,15 @@ print('Contract deployed at:', addr)
 | POST | /decoy/seed | Seed a decoy application for an officer |
 | POST | /decoy/outcome | Record decoy pass/fail |
 | GET | /audit/{subject_id} | Retrieve blockchain-anchored audit trail |
+
+## Authentication & Authorization
+
+All mutating endpoints require the `x-api-key` header (see `API_KEY` in
+`.env.example`). Citizen-scoped endpoints additionally require `x-citizen-id`
+(the citizen's `id` or `CHIN`), and officer actions require `x-officer-id` (an
+existing `OfficerProfile.officer_id`). Citizens can only read, attach documents
+to, or withdraw their own applications and bookmarks; only registered officers
+may review applications.
 
 ## Supported Smart Contract Workflows
 

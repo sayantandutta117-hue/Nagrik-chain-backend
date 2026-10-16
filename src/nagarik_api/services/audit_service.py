@@ -58,7 +58,7 @@ async def record_audit_event(
     event, so callers never claim on-chain anchoring that did not happen.
     """
     try:
-        event = await AuditService().record(db, actor, action, subject_id, payload)
+        event: AuditEvent | None = await AuditService().record(db, actor, action, subject_id, payload)
     except Exception:
         logger.exception(
             "Blockchain audit anchoring failed for action=%s subject=%s", action, subject_id
